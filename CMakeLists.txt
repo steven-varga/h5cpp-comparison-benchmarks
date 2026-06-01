@@ -86,7 +86,15 @@ set_target_properties(copy-gzip6 PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
 
-# ─── Benchmark Targets ────────────────────────────────────────────────────────────
+# ─── Wrapper Throughput Benchmarks ──────────────────────────────────────────────────
+# Each does the same job: read IEX tick data, write with gzip-6, report Mticks/s.
+
+# HighFive
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/wrappers/highfive/include)
+    add_benchmark(copy-gzip6-highfive bench/highfive/copy_gzip6.cpp)
+endif()
+
+# ─── Micro-benchmark Targets (nanobench) ────────────────────────────────────────────
 # Raw HDF5 C API baseline
 add_benchmark(bench-hdf5-c src/baseline_c.cpp)
 

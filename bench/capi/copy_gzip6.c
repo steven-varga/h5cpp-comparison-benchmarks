@@ -47,6 +47,7 @@ int main(int argc, char *argv[]) {
 
     signal(SIGALRM, on_alarm);
     alarm(TIMEOUT_SEC);
+    setbuf(stdout, NULL);
 
     hid_t in_file = -1, in_dset = -1, in_dspace = -1, in_dtype = -1, in_dcpl = -1;
     hid_t out_file = -1, out_grp = -1, out_dcpl = -1, out_dspace = -1, out_dset = -1;
