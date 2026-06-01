@@ -1,0 +1,9 @@
+/home/steven/projects/vargalabs-workspace/worktrees/h5cpp-comparison-benchmarks/1-feature-benchmark-setup/build/CMakeFiles/copy-gzip9.dir
+/home/steven/projects/vargalabs-workspace/worktrees/h5cpp-comparison-benchmarks/1-feature-benchmark-setup/build/CMakeFiles/bench-hdf5-c.dir
+/home/steven/projects/vargalabs-workspace/worktrees/h5cpp-comparison-benchmarks/1-feature-benchmark-setup/build/CMakeFiles/bench-highfive.dir
+/home/steven/projects/vargalabs-workspace/worktrees/h5cpp-comparison-benchmarks/1-feature-benchmark-setup/build/CMakeFiles/bench-dmsc-h5cpp.dir
+/home/steven/projects/vargalabs-workspace/worktrees/h5cpp-comparison-benchmarks/1-feature-benchmark-setup/build/CMakeFiles/bench-h5pp.dir
+/home/steven/projects/vargalabs-workspace/worktrees/h5cpp-comparison-benchmarks/1-feature-benchmark-setup/build/CMakeFiles/bench-h5cpp.dir
+/home/steven/projects/vargalabs-workspace/worktrees/h5cpp-comparison-benchmarks/1-feature-benchmark-setup/build/CMakeFiles/bench-all.dir
+/home/steven/projects/vargalabs-workspace/worktrees/h5cpp-comparison-benchmarks/1-feature-benchmark-setup/build/CMakeFiles/edit_cache.dir
+/home/steven/projects/vargalabs-workspace/worktrees/h5cpp-comparison-benchmarks/1-feature-benchmark-setup/build/CMakeFiles/rebuild_cache.dir

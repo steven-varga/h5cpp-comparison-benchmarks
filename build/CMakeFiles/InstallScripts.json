@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/steven/projects/vargalabs-workspace/worktrees/h5cpp-comparison-benchmarks/1-feature-benchmark-setup/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

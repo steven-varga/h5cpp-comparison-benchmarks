@@ -77,6 +77,15 @@ function(add_benchmark target_name source_file)
     )
 endfunction()
 
+# ─── Utility Targets ──────────────────────────────────────────────────────────────
+# Standalone C program: copy dataset with gzip level 9
+add_executable(copy-gzip9 src/copy_gzip9.c)
+target_include_directories(copy-gzip9 PRIVATE ${HDF5_C_INCLUDE_DIRS})
+target_link_libraries(copy-gzip9 PRIVATE ${HDF5_LIBRARIES})
+set_target_properties(copy-gzip9 PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)
+
 # ─── Benchmark Targets ────────────────────────────────────────────────────────────
 # Raw HDF5 C API baseline
 add_benchmark(bench-hdf5-c src/baseline_c.cpp)
