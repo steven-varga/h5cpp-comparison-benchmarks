@@ -1,11 +1,9 @@
-/* copy_gzip6.c — Fast chunked copy of IEX tick data with gzip level 6.
+/* copy_gzip6.c — C API: element-by-element processing of IEX tick data with gzip level 6.
  *
  * Usage: ./copy_gzip6 <input.h5> <output.h5>
  *
- * Optimisations:
- *   - Output chunks sized at 4 M elements (~100 MiB) to amortise compression.
- *   - I/O blocks of 50 M elements (~1.2 GiB) to reduce HDF5 call overhead.
- *   - Aligned buffer, simple progress reporting, 5-minute hard cap.
+ * Reads chunk-aligned blocks, iterates through each tick individually,
+ * writes with DEFLATE level 6. Measures tick/second throughput.
  */
 
 #include <hdf5.h>
@@ -15,13 +13,22 @@
 #include <time.h>
 #include <signal.h>
 #include <unistd.h>
+#include <stdint.h>
 
 #define DATASET_NAME      "2026-05-28"
 #define GROUP_NAME        "irts"
 #define OUT_CHUNK_ELEMS   4194304ULL   /* 4 M elements  ≈ 100 MiB per chunk */
-#define IO_BLOCK_ELEMS    50000000ULL  /* 50 M elements ≈ 1.2 GiB per read/write */
+#define IO_BLOCK_ELEMS    4194304ULL   /* read/write one chunk at a time */
 #define TIMEOUT_SEC       300
 #define PROGRESS_EVERY    100000000ULL
+
+typedef struct {
+    uint64_t time;
+    float    price;
+    uint32_t size;
+    uint16_t contract_id;
+    uint16_t flags;
+} tick_t;
 
 static volatile int g_timed_out = 0;
 
@@ -51,7 +58,7 @@ int main(int argc, char *argv[]) {
 
     hid_t in_file = -1, in_dset = -1, in_dspace = -1, in_dtype = -1, in_dcpl = -1;
     hid_t out_file = -1, out_grp = -1, out_dcpl = -1, out_dspace = -1, out_dset = -1;
-    void *buffer = NULL;
+    tick_t *buffer = NULL;
     int rc = 0;
 
     /* ── Open source ──────────────────────────────────────────────────── */
@@ -95,11 +102,11 @@ int main(int argc, char *argv[]) {
 
     /* ── Allocate I/O buffer ──────────────────────────────────────────── */
     const hsize_t buf_elems = IO_BLOCK_ELEMS;
-    buffer = aligned_alloc(64, (size_t)buf_elems * type_size);
-    if (!buffer) { fprintf(stderr, "Failed to allocate %.2f GiB buffer\n",
-           (double)(buf_elems * type_size) / (1024.0 * 1024.0 * 1024.0)); rc = 1; goto cleanup; }
+    buffer = aligned_alloc(64, (size_t)buf_elems * sizeof(tick_t));
+    if (!buffer) { fprintf(stderr, "Failed to allocate %.2f MiB buffer\n",
+           (double)(buf_elems * sizeof(tick_t)) / (1024.0 * 1024.0)); rc = 1; goto cleanup; }
 
-    /* ── Big-block copy loop ──────────────────────────────────────────── */
+    /* ── Big-block copy loop with element-by-element processing ───────── */
     hid_t mem_dspace = H5Screate_simple(1, &buf_elems, NULL);
 
     double t0 = monotonic_seconds();
@@ -119,6 +126,13 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "Read failed at offset %llu\n", (unsigned long long)offset);
             rc = 1; break;
         }
+
+        /* ── element-by-element processing ─────────────────────────────── */
+        volatile float checksum = 0.0f;
+        for (hsize_t i = 0; i < count; i++) {
+            checksum += buffer[i].price;
+        }
+        (void)checksum;
 
         hid_t out_fspace = H5Dget_space(out_dset);
         H5Sselect_hyperslab(out_fspace, H5S_SELECT_SET, &offset, NULL, &count, NULL);

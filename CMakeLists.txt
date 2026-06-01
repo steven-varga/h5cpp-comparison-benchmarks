@@ -94,6 +94,16 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/wrappers/highfive/include)
     add_benchmark(copy-gzip6-highfive bench/highfive/copy_gzip6.cpp)
 endif()
 
+# ESS-DMSC h5cpp
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/wrappers/dmsc-h5cpp/include)
+    add_benchmark(copy-gzip6-dmsc-h5cpp bench/dmsc-h5cpp/copy_gzip6.cpp)
+endif()
+
+# h5pp
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/wrappers/h5pp/include)
+    add_benchmark(copy-gzip6-h5pp bench/h5pp/copy_gzip6.cpp)
+endif()
+
 # ─── Micro-benchmark Targets (nanobench) ────────────────────────────────────────────
 # Raw HDF5 C API baseline
 add_benchmark(bench-hdf5-c src/baseline_c.cpp)

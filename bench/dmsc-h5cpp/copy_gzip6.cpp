@@ -1,12 +1,12 @@
-/* copy_gzip6.cpp — HighFive: element-by-element processing of IEX tick data with gzip level 6.
+/* copy_gzip6.cpp — ESS-DMSC h5cpp: element-by-element processing of IEX tick data with gzip level 6.
  *
- * Usage: ./copy-gzip6-highfive <input.h5> <output.h5>
+ * Usage: ./copy-gzip6-dmsc-h5cpp <input.h5> <output.h5>
  *
- * Uses HighFive's CompoundType support, reads chunk-aligned blocks,
+ * Uses dmsc-h5cpp's Compound type support, reads chunk-aligned blocks,
  * iterates element by element, writes with DEFLATE level 6.
  */
 
-#include <highfive/highfive.hpp>
+#include <h5cpp/hdf5.hpp>
 
 #include <cstdio>
 #include <cstdlib>
@@ -15,6 +15,7 @@
 #include <unistd.h>
 #include <vector>
 #include <cstdint>
+#include <algorithm>
 
 #define DATASET_NAME    "2026-05-28"
 #define GROUP_NAME      "irts"
@@ -31,17 +32,6 @@ struct tick_t {
     uint16_t flags;
 };
 
-HighFive::CompoundType create_compound_tick() {
-    return HighFive::CompoundType(std::vector<HighFive::CompoundType::member_def>{
-            { "time",        HighFive::AtomicType<uint64_t>{}, offsetof(tick_t, time) },
-            { "price",       HighFive::AtomicType<float>{},    offsetof(tick_t, price) },
-            { "size",        HighFive::AtomicType<uint32_t>{}, offsetof(tick_t, size) },
-            { "contract_id", HighFive::AtomicType<uint16_t>{}, offsetof(tick_t, contract_id) },
-            { "flags",       HighFive::AtomicType<uint16_t>{}, offsetof(tick_t, flags) }
-        }, sizeof(tick_t));
-}
-HIGHFIVE_REGISTER_TYPE(tick_t, create_compound_tick)
-
 static volatile int g_timed_out = 0;
 
 static void on_alarm(int sig) {
@@ -53,6 +43,21 @@ static double monotonic_seconds() {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec + ts.tv_nsec * 1e-9;
+}
+
+static hdf5::datatype::Compound make_tick_type() {
+    auto ctype = hdf5::datatype::Compound::create(sizeof(tick_t));
+    ctype.insert("time",        offsetof(tick_t, time),
+                 hdf5::datatype::TypeTrait<uint64_t>::create());
+    ctype.insert("price",       offsetof(tick_t, price),
+                 hdf5::datatype::TypeTrait<float>::create());
+    ctype.insert("size",        offsetof(tick_t, size),
+                 hdf5::datatype::TypeTrait<uint32_t>::create());
+    ctype.insert("contract_id", offsetof(tick_t, contract_id),
+                 hdf5::datatype::TypeTrait<uint16_t>::create());
+    ctype.insert("flags",       offsetof(tick_t, flags),
+                 hdf5::datatype::TypeTrait<uint16_t>::create());
+    return ctype;
 }
 
 int main(int argc, char* argv[]) {
@@ -70,29 +75,34 @@ int main(int argc, char* argv[]) {
 
     try {
         /* ── Open source ──────────────────────────────────────────────────── */
-        HighFive::File in_file(in_path, HighFive::File::ReadOnly);
-        auto in_dset = in_file.getDataSet("/" GROUP_NAME "/" DATASET_NAME);
-
-        auto dtype     = in_dset.getDataType();
-        auto nelements = in_dset.getElementCount();
-        size_t type_size = dtype.getSize();
+        auto in_file  = hdf5::file::open(in_path, hdf5::file::AccessFlags::ReadOnly);
+        auto in_dset  = in_file.root().get_dataset("/" GROUP_NAME "/" DATASET_NAME);
+        auto in_dtype = in_dset.datatype();
+        auto in_space = in_dset.dataspace();
+        auto nelem    = static_cast<size_t>(in_space.size());
+        size_t type_size = in_dtype.size();
 
         printf("Source: %s  elements=%zu  type_size=%zu  total=%.2f GiB  timeout=%ds\n",
-               in_path, nelements, type_size,
-               static_cast<double>(nelements * type_size) / (1024.0 * 1024.0 * 1024.0),
+               in_path, nelem, type_size,
+               static_cast<double>(nelem * type_size) / (1024.0 * 1024.0 * 1024.0),
                TIMEOUT_SEC);
 
         /* ── Create output ────────────────────────────────────────────────── */
-        HighFive::File out_file(out_path, HighFive::File::Truncate);
+        auto out_file = hdf5::file::create(out_path, hdf5::file::AccessFlags::Truncate);
 
-        HighFive::DataSetCreateProps createProps;
-        createProps.add(HighFive::Chunking(std::vector<hsize_t>{OUT_CHUNK_ELEMS}));
-        createProps.add(HighFive::Deflate(6));
+        hdf5::Dimensions chunk{OUT_CHUNK_ELEMS};
+        hdf5::Dimensions dims{nelem};
+        auto out_space = hdf5::dataspace::Simple(dims);
 
-        HighFive::DataSpace space(std::vector<size_t>{nelements});
-        auto out_dset = out_file.createDataSet(
+        hdf5::property::DatasetCreationList dcpl;
+        dcpl.layout(hdf5::property::DatasetLayout::Chunked);
+        dcpl.chunk(chunk);
+        hdf5::filter::Deflate deflate(6);
+        deflate(dcpl, hdf5::filter::Availability::Mandatory);
+
+        auto out_dset = out_file.root().create_dataset(
             "/" GROUP_NAME "/" DATASET_NAME,
-            space, dtype, createProps, HighFive::DataSetAccessProps::Default(), true);
+            in_dtype, out_space, dcpl);
 
         /* ── Allocate I/O buffer ──────────────────────────────────────────── */
         const size_t buf_elems = IO_BLOCK_ELEMS;
@@ -103,13 +113,11 @@ int main(int argc, char* argv[]) {
         size_t total_copied = 0;
         size_t next_report  = PROGRESS_EVERY;
 
-        for (size_t offset = 0; offset < nelements && !g_timed_out; offset += buf_elems) {
-            size_t count = buf_elems;
-            if (offset + count > nelements)
-                count = nelements - offset;
+        for (size_t offset = 0; offset < nelem && !g_timed_out; offset += buf_elems) {
+            size_t count = std::min(buf_elems, nelem - offset);
 
-            in_dset.select(std::vector<size_t>{offset}, std::vector<size_t>{count})
-                   .read(buffer);
+            hdf5::dataspace::Hyperslab slab({offset}, {count});
+            in_dset.read(buffer, slab);
 
             /* ── element-by-element processing ─────────────────────────────── */
             volatile float checksum = 0.0f;
@@ -118,8 +126,7 @@ int main(int argc, char* argv[]) {
             }
             (void)checksum;
 
-            out_dset.select(std::vector<size_t>{offset}, std::vector<size_t>{count})
-                    .write(buffer);
+            out_dset.write(buffer, slab);
 
             total_copied += count;
             if (total_copied >= next_report) {
