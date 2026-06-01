@@ -94,9 +94,10 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/wrappers/h5pp/include)
     add_benchmark(bench-h5pp src/h5pp.cpp)
 endif()
 
-# h5cpp (added manually by Steven)
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/wrappers/h5cpp)
-    add_benchmark(bench-h5cpp src/h5cpp.cpp)
+# h5cpp (added manually by Steven under vargalabs/)
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/wrappers/vargalabs/include/h5cpp)
+    add_benchmark(bench-h5cpp src/h5cpp.cpp
+        EXTRA_INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/wrappers/vargalabs/include)
 endif()
 
 # ─── Aggregate Target ─────────────────────────────────────────────────────────────

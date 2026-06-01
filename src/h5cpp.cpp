@@ -5,7 +5,10 @@
 #define ANKERL_NANOBENCH_IMPLEMENT
 #include <nanobench.h>
 
-// #include <h5cpp/...>
+#include <h5cpp/H5Fcreate.hpp>
+#include <h5cpp/H5Dcreate.hpp>
+#include <h5cpp/H5Dwrite.hpp>
+
 #include <vector>
 #include <cstdio>
 
@@ -13,7 +16,19 @@ int main() {
     const char* filename = "bench_h5cpp.h5";
     std::remove(filename);
 
-    // TODO: add h5cpp benchmark implementation
+    h5::fd_t fd = h5::create(filename, H5F_ACC_TRUNC);
+    constexpr size_t N = 1'000'000;
+    std::vector<double> data(N, 3.14);
 
-    return 0;
+    auto ds = h5::create<double>(fd, "data", h5::count{N});
+
+    ankerl::nanobench::Bench bench;
+    bench.title("h5cpp — write 1M doubles");
+    bench.relative(true);
+
+    bench.run("h5::write", [&]() {
+        h5::write(fd, "data", data);
+    });
+
+    std::remove(filename);
 }
