@@ -79,7 +79,7 @@ endfunction()
 
 # ─── C API Reference Implementation ─────────────────────────────────────────────────
 # Standalone C program: copy dataset with gzip level 6, 5-minute hard cap
-add_executable(copy-gzip6 capi/copy_gzip6.c)
+add_executable(copy-gzip6 bench/capi/copy_gzip6.c)
 target_include_directories(copy-gzip6 PRIVATE ${HDF5_C_INCLUDE_DIRS})
 target_link_libraries(copy-gzip6 PRIVATE ${HDF5_LIBRARIES})
 set_target_properties(copy-gzip6 PROPERTIES
