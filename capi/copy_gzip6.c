@@ -1,9 +1,8 @@
-/* copy_gzip9.c — Read IEX tick data efficiently and rewrite with gzip level 9.
+/* copy_gzip6.c — Read IEX tick data efficiently and rewrite with gzip level 6.
  *
- * Usage: ./copy_gzip9 <input.h5> <output.h5>
+ * Usage: ./copy-gzip6 <input.h5> <output.h5>
  *
- * Reads the /irts/YYYY-MM-DD dataset in chunk-aligned blocks and writes
- * an identical dataset with DEFLATE level 9 applied.
+ * Hard cap: 5 minutes (exits gracefully with partial result if exceeded).
  */
 
 #include <hdf5.h>
@@ -11,10 +10,21 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <signal.h>
+#include <unistd.h>
 
 #define DATASET_NAME   "2026-05-28"
 #define GROUP_NAME     "irts"
 #define CHUNK_ELEMENTS 65536
+#define TIMEOUT_SEC    300          /* 5 minutes */
+#define PROGRESS_EVERY 100000000ULL /* print every ~100M ticks */
+
+static volatile int g_timed_out = 0;
+
+static void on_alarm(int sig) {
+    (void)sig;
+    g_timed_out = 1;
+}
 
 static double monotonic_seconds(void) {
     struct timespec ts;
@@ -30,6 +40,9 @@ int main(int argc, char *argv[]) {
 
     const char *in_path  = argv[1];
     const char *out_path = argv[2];
+
+    signal(SIGALRM, on_alarm);
+    alarm(TIMEOUT_SEC);
 
     hid_t in_file   = -1;
     hid_t in_dset   = -1;
@@ -47,7 +60,7 @@ int main(int argc, char *argv[]) {
     void *buffer = NULL;
     int rc = 0;
 
-    /* ── Open source file and dataset ─────────────────────────────────── */
+    /* ── Open source ──────────────────────────────────────────────────── */
     in_file = H5Fopen(in_path, H5F_ACC_RDONLY, H5P_DEFAULT);
     if (in_file < 0) { fprintf(stderr, "Failed to open input: %s\n", in_path); rc = 1; goto cleanup; }
 
@@ -63,18 +76,18 @@ int main(int argc, char *argv[]) {
     const hsize_t nelements = dims[0];
     const size_t  type_size = H5Tget_size(in_dtype);
 
-    printf("Source: %s  elements=%llu  type_size=%zu  total=%.2f GiB\n",
+    printf("Source: %s  elements=%llu  type_size=%zu  total=%.2f GiB  timeout=%ds\n",
            in_path, (unsigned long long)nelements, type_size,
-           (double)(nelements * type_size) / (1024.0 * 1024.0 * 1024.0));
+           (double)(nelements * type_size) / (1024.0 * 1024.0 * 1024.0),
+           TIMEOUT_SEC);
 
-    /* ── Create output file and group ─────────────────────────────────── */
+    /* ── Create output ────────────────────────────────────────────────── */
     out_file = H5Fcreate(out_path, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
-    if (out_file < 0) { fprintf(stderr, "Failed to create output: %s\n", out_path); rc = 1; goto cleanup; }
+    if (out_file < 0) { fprintf(stderr, "Failed to create output\n"); rc = 1; goto cleanup; }
 
     out_grp = H5Gcreate2(out_file, GROUP_NAME, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
-    if (out_grp < 0) { fprintf(stderr, "Failed to create output group\n"); rc = 1; goto cleanup; }
+    if (out_grp < 0) { fprintf(stderr, "Failed to create group\n"); rc = 1; goto cleanup; }
 
-    /* Re-use source chunk dimensions for aligned I/O */
     hsize_t chunk_dims[1] = { CHUNK_ELEMENTS };
     if (H5Pget_chunk(in_dcpl, 1, chunk_dims) < 0) {
         chunk_dims[0] = CHUNK_ELEMENTS;
@@ -82,7 +95,7 @@ int main(int argc, char *argv[]) {
 
     out_dcpl = H5Pcreate(H5P_DATASET_CREATE);
     H5Pset_chunk(out_dcpl, 1, chunk_dims);
-    H5Pset_deflate(out_dcpl, 9); /* gzip level 9 */
+    H5Pset_deflate(out_dcpl, 6); /* gzip level 6 */
 
     out_dspace = H5Screate_simple(1, &nelements, NULL);
     out_dset = H5Dcreate2(out_file, "/" GROUP_NAME "/" DATASET_NAME,
@@ -90,60 +103,68 @@ int main(int argc, char *argv[]) {
                           H5P_DEFAULT, out_dcpl, H5P_DEFAULT);
     if (out_dset < 0) { fprintf(stderr, "Failed to create output dataset\n"); rc = 1; goto cleanup; }
 
-    /* ── Allocate chunk-aligned buffer ────────────────────────────────── */
+    /* ── Buffer ───────────────────────────────────────────────────────── */
     const hsize_t buf_elements = chunk_dims[0];
     buffer = aligned_alloc(64, (size_t)buf_elements * type_size);
     if (!buffer) { fprintf(stderr, "Failed to allocate buffer\n"); rc = 1; goto cleanup; }
 
-    /* ── Chunked copy loop ────────────────────────────────────────────── */
     mem_dspace = H5Screate_simple(1, &buf_elements, NULL);
 
+    /* ── Chunked copy with progress + timeout ─────────────────────────── */
     double t0 = monotonic_seconds();
     hsize_t total_copied = 0;
+    hsize_t next_report  = PROGRESS_EVERY;
 
-    for (hsize_t offset = 0; offset < nelements; offset += buf_elements) {
+    for (hsize_t offset = 0; offset < nelements && !g_timed_out; offset += buf_elements) {
         hsize_t count = buf_elements;
         if (offset + count > nelements)
             count = nelements - offset;
 
-        /* select source hyperslab */
         H5Sselect_hyperslab(in_dspace, H5S_SELECT_SET, &offset, NULL, &count, NULL);
-
-        /* shrink memory dataspace for final partial chunk */
-        if (count != buf_elements) {
+        if (count != buf_elements)
             H5Sset_extent_simple(mem_dspace, 1, &count, NULL);
-        }
 
-        /* read */
         if (H5Dread(in_dset, in_dtype, mem_dspace, in_dspace, H5P_DEFAULT, buffer) < 0) {
             fprintf(stderr, "Read failed at offset %llu\n", (unsigned long long)offset);
-            rc = 1;
-            break;
+            rc = 1; break;
         }
 
-        /* write */
         hid_t out_file_dspace = H5Dget_space(out_dset);
         H5Sselect_hyperslab(out_file_dspace, H5S_SELECT_SET, &offset, NULL, &count, NULL);
 
         if (H5Dwrite(out_dset, in_dtype, mem_dspace, out_file_dspace, H5P_DEFAULT, buffer) < 0) {
             fprintf(stderr, "Write failed at offset %llu\n", (unsigned long long)offset);
             H5Sclose(out_file_dspace);
-            rc = 1;
-            break;
+            rc = 1; break;
         }
         H5Sclose(out_file_dspace);
 
         total_copied += count;
+
+        if (total_copied >= next_report) {
+            double elapsed = monotonic_seconds() - t0;
+            printf("  progress: %llu ticks  %.1f s  %.2f Mticks/s\n",
+                   (unsigned long long)total_copied, elapsed,
+                   (total_copied / elapsed) / 1e6);
+            next_report += PROGRESS_EVERY;
+        }
     }
 
     double elapsed = monotonic_seconds() - t0;
     double gib_processed = (double)(total_copied * type_size) / (1024.0 * 1024.0 * 1024.0);
 
-    printf("Copied %llu elements in %.3f s  (%.3f GiB  %.2f MiB/s)\n",
-           (unsigned long long)total_copied, elapsed, gib_processed,
-           (gib_processed * 1024.0) / elapsed);
+    if (g_timed_out) {
+        printf("TIMEOUT after %.1f s — partial copy: %llu ticks (%.3f GiB)\n",
+               elapsed, (unsigned long long)total_copied, gib_processed);
+        rc = 2;
+    } else {
+        printf("Copied %llu ticks in %.3f s  %.3f GiB  %.2f MiB/s  %.2f Mticks/s\n",
+               (unsigned long long)total_copied, elapsed, gib_processed,
+               (gib_processed * 1024.0) / elapsed,
+               (total_copied / elapsed) / 1e6);
+    }
 
-    /* ── Single exit-point cleanup ────────────────────────────────────── */
+    /* ── Cleanup ──────────────────────────────────────────────────────── */
 cleanup:
     if (buffer)      free(buffer);
     if (mem_dspace >= 0) H5Sclose(mem_dspace);

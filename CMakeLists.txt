@@ -77,12 +77,12 @@ function(add_benchmark target_name source_file)
     )
 endfunction()
 
-# ─── Utility Targets ──────────────────────────────────────────────────────────────
-# Standalone C program: copy dataset with gzip level 9
-add_executable(copy-gzip9 src/copy_gzip9.c)
-target_include_directories(copy-gzip9 PRIVATE ${HDF5_C_INCLUDE_DIRS})
-target_link_libraries(copy-gzip9 PRIVATE ${HDF5_LIBRARIES})
-set_target_properties(copy-gzip9 PROPERTIES
+# ─── C API Reference Implementation ─────────────────────────────────────────────────
+# Standalone C program: copy dataset with gzip level 6, 5-minute hard cap
+add_executable(copy-gzip6 capi/copy_gzip6.c)
+target_include_directories(copy-gzip6 PRIVATE ${HDF5_C_INCLUDE_DIRS})
+target_link_libraries(copy-gzip6 PRIVATE ${HDF5_LIBRARIES})
+set_target_properties(copy-gzip6 PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
 
