@@ -1,1 +1,0 @@
-/usr/bin/g++ "CMakeFiles/bench-highfive.dir/src/highfive.cpp.o" -o bench-highfive  -Wl,-rpath,/usr/local/lib /usr/local/lib/libhdf5.so /usr/lib/x86_64-linux-gnu/libz.so /usr/lib/x86_64-linux-gnu/libdl.a -lm /usr/lib/x86_64-linux-gnu/libz.so
