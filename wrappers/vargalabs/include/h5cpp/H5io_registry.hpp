@@ -39,6 +39,11 @@
 #include <stdexcept>
 #include <unordered_map>
 
+#if !H5_VERSION_GE(1,12,0)
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
 namespace h5::impl {
 
 // ─── singleton_t — CRTP shared_ptr singleton ─────────────────────────────────
@@ -245,7 +250,18 @@ inline io_registry_t& registry() {
 // type H5I_FILE).  Caller already holds a file id; no temporary is needed.
 inline unsigned long file_key_of_file(::hid_t file_id) {
     unsigned long fileno = 0;
+#if H5_VERSION_GE(1,12,0)
     H5Fget_fileno(file_id, &fileno);
+#else
+    void* handle = nullptr;
+    if (H5Fget_vfd_handle(file_id, 0, &handle) >= 0 && handle) {
+        struct stat st;
+        if (fstat(*(static_cast<int*>(handle)), &st) == 0)
+            fileno = static_cast<unsigned long>(st.st_ino);
+    }
+    if (fileno == 0)
+        fileno = static_cast<unsigned long>(file_id);
+#endif
     return fileno;
 }
 
@@ -257,7 +273,7 @@ inline unsigned long file_key(::hid_t id_in_file) {
     ::hid_t file_id = H5Iget_file_id(id_in_file);  // refcount++
     unsigned long fileno = 0;
     if (file_id >= 0) {
-        H5Fget_fileno(file_id, &fileno);
+        fileno = file_key_of_file(file_id);
         H5Fclose(file_id);                          // refcount--
     }
     return fileno;

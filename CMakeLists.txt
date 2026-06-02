@@ -27,8 +27,11 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
 endif()
 
 # ─── System Dependencies ──────────────────────────────────────────────────────────
-find_package(Threads REQUIRED)
+# Use HDF5 2.1.1 from the HDF_Group installation (not the system package).
+set(HDF5_ROOT "/usr/local/HDF_Group/HDF5/2.1.1")
+list(APPEND CMAKE_PREFIX_PATH ${HDF5_ROOT}/cmake)
 find_package(HDF5 REQUIRED COMPONENTS C)
+find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
 
 # ─── Third-party Include Directories ──────────────────────────────────────────────
@@ -102,6 +105,33 @@ endif()
 # h5pp
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/wrappers/h5pp/include)
     add_benchmark(copy-gzip6-h5pp bench/h5pp/copy_gzip6.cpp)
+endif()
+
+# vargalabs h5cpp (threaded packet-table pipeline)
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/wrappers/vargalabs/include/h5cpp)
+    set(H5CPP_COMPILER "/home/steven/projects/h5cpp-compiler/build/h5cpp")
+    set(TICK_GEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/bench/h5cpp)
+    set(TICK_GEN_H   ${TICK_GEN_DIR}/generated.h)
+
+    add_custom_command(
+        OUTPUT  ${TICK_GEN_H}
+        COMMAND ${H5CPP_COMPILER}
+                -o ${TICK_GEN_H}
+                --extra-arg=-std=c++20
+                --extra-arg=-I${CMAKE_CURRENT_SOURCE_DIR}/wrappers/vargalabs/include
+                --extra-arg=-I${HDF5_ROOT}/include
+                ${TICK_GEN_DIR}/copy_gzip6.cpp
+        DEPENDS ${TICK_GEN_DIR}/copy_gzip6.cpp ${TICK_GEN_DIR}/tick.h
+        COMMENT "Generating h5cpp type descriptor for tick_t"
+        VERBATIM
+    )
+    add_custom_target(copy-gzip6-h5cpp-generated DEPENDS ${TICK_GEN_H})
+
+    add_benchmark(copy-gzip6-h5cpp bench/h5cpp/copy_gzip6.cpp
+        EXTRA_INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}/wrappers/vargalabs/include)
+    add_dependencies(copy-gzip6-h5cpp copy-gzip6-h5cpp-generated)
+    target_compile_definitions(copy-gzip6-h5cpp PRIVATE H5CPP_HAS_LIBDEFLATE=1)
+    target_link_libraries(copy-gzip6-h5cpp PRIVATE deflate)
 endif()
 
 # ─── Micro-benchmark Targets (nanobench) ────────────────────────────────────────────

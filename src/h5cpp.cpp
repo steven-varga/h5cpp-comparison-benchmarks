@@ -5,9 +5,7 @@
 #define ANKERL_NANOBENCH_IMPLEMENT
 #include <nanobench.h>
 
-#include <h5cpp/H5Fcreate.hpp>
-#include <h5cpp/H5Dcreate.hpp>
-#include <h5cpp/H5Dwrite.hpp>
+#include <h5cpp/all>
 
 #include <vector>
 #include <cstdio>
@@ -20,7 +18,7 @@ int main() {
     constexpr size_t N = 1'000'000;
     std::vector<double> data(N, 3.14);
 
-    auto ds = h5::create<double>(fd, "data", h5::count{N});
+    auto ds = h5::create<double>(fd, "data", h5::current_dims{N});
 
     ankerl::nanobench::Bench bench;
     bench.title("h5cpp — write 1M doubles");
